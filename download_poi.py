@@ -6,15 +6,19 @@ Example:
     python download_poi.py --province "Bali" --tag amenity=school shop=supermarket
 """
 import argparse
+import contextvars
 import csv
 import difflib
 import hashlib
 import json
 import logging
+import os
 import re
+import shutil
 import sys
 import threading
 import time
+import uuid
 from datetime import date
 from pathlib import Path
 
@@ -35,6 +39,32 @@ SHOW_SPINNER = True  # the web app sets this to False
 
 class POIError(Exception):
     """Recoverable, user-facing error."""
+
+
+class Cancelled(Exception):
+    """The job was cancelled by the user. Deliberately NOT a POIError so that the
+    endpoint/polygon fallbacks and retry loops never swallow it."""
+
+
+# Cancellation event of the job running in the current thread (set by run_download).
+# A context variable keeps the many helper signatures unchanged and is isolated per job.
+_cancel_event = contextvars.ContextVar("poi_cancel_event", default=None)
+
+
+def check_cancelled():
+    """Safe checkpoint: raise Cancelled if the current job was cancelled."""
+    ev = _cancel_event.get()
+    if ev is not None and ev.is_set():
+        raise Cancelled("Pencarian dibatalkan.")
+
+
+def _sleep(seconds):
+    """time.sleep that wakes up immediately (and raises Cancelled) when the job is cancelled."""
+    ev = _cancel_event.get()
+    if ev is None:
+        time.sleep(seconds)
+    elif ev.wait(seconds):
+        raise Cancelled("Pencarian dibatalkan.")
 
 
 # --------------------------------------------------------------------------- utils
@@ -99,14 +129,42 @@ class Spinner:
 _last_nominatim = 0.0
 
 
+def _send(method, url, headers, timeout, kwargs):
+    """Run one HTTP request. `requests` cannot abort a blocking call, so when the job has a
+    cancel event the request runs in a helper thread and the caller stops waiting as soon as
+    the job is cancelled (the helper finishes/times out on its own; its result is discarded)."""
+    ev = _cancel_event.get()
+    if ev is None:
+        return requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+    box = {}
+
+    def target():
+        try:
+            box["resp"] = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+        except BaseException as exc:  # noqa: BLE001 - re-raised in the caller
+            box["exc"] = exc
+
+    t = threading.Thread(target=target, daemon=True)
+    t.start()
+    while t.is_alive():
+        t.join(0.2)
+        if ev.is_set():
+            raise Cancelled("Pencarian dibatalkan.")
+    if "exc" in box:
+        raise box["exc"]
+    return box["resp"]
+
+
 def http_request(method, url, *, timeout, **kwargs):
     """HTTP call with retry, backoff and status handling. Returns Response."""
     headers = kwargs.pop("headers", {})
     headers.setdefault("User-Agent", config.USER_AGENT)
     last = None
     for attempt in range(1, config.MAX_RETRIES + 1):
+        check_cancelled()  # before every (re)try
         try:
-            resp = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+            resp = _send(method, url, headers, timeout, kwargs)
+            check_cancelled()  # after the request
             if resp.status_code in (429, 502, 503, 504):
                 raise requests.HTTPError(f"HTTP {resp.status_code} from {url}", response=resp)
             resp.raise_for_status()
@@ -115,7 +173,7 @@ def http_request(method, url, *, timeout, **kwargs):
             last = exc
             log.warning("Attempt %d/%d failed for %s: %s", attempt, config.MAX_RETRIES, url, exc)
             if attempt < config.MAX_RETRIES:
-                time.sleep(config.RETRY_BACKOFF * attempt)
+                _sleep(config.RETRY_BACKOFF * attempt)
     raise POIError(f"Request to {url} failed after {config.MAX_RETRIES} attempts: {last}")
 
 
@@ -161,9 +219,10 @@ def get_province_boundary(province, country):
         log.info("Using cached boundary: %s", cache_file.name)
         return json.loads(cache_file.read_text(encoding="utf-8"))
 
+    check_cancelled()
     wait = config.NOMINATIM_MIN_INTERVAL - (time.time() - _last_nominatim)
     if wait > 0:
-        time.sleep(wait)
+        _sleep(wait)
     params = {
         "q": f"{province}, {country}", "format": "jsonv2", "polygon_geojson": 1,
         "addressdetails": 1, "extratags": 1, "namedetails": 1, "limit": 10,
@@ -273,6 +332,7 @@ def download_poi(query, on_wait=None):
     """
     errors = []
     for endpoint in config.OVERPASS_ENDPOINTS:
+        check_cancelled()
         try:
             log.debug("Overpass endpoint: %s", endpoint)
             with Spinner("Waiting for Overpass", on_wait):
@@ -289,7 +349,7 @@ def download_poi(query, on_wait=None):
         except POIError as exc:
             log.warning("Endpoint %s failed: %s", endpoint, exc)
             errors.append(str(exc))
-            time.sleep(config.REQUEST_DELAY)
+            _sleep(config.REQUEST_DELAY)
     raise POIError("All Overpass endpoints failed:\n  - " + "\n  - ".join(errors))
 
 
@@ -382,6 +442,7 @@ def resolve_jobs(categories, custom_tags):
 
 def fetch_elements(tags, boundary, on_wait=None):
     """Query Overpass (area filter, polygon fallback) and return raw OSM elements."""
+    check_cancelled()
     area_id = get_osm_area(boundary)
     query = build_overpass_query(tags, area_id=area_id)
     log.debug("Query:\n%s", query)
@@ -393,7 +454,7 @@ def fetch_elements(tags, boundary, on_wait=None):
             raise POIError("empty result via area query")
     except POIError as exc:
         log.warning("Area query unsuccessful (%s). Trying polygon fallback ...", exc)
-        time.sleep(config.REQUEST_DELAY)
+        _sleep(config.REQUEST_DELAY)
         polys = boundary_polygons(boundary)
         data = download_poi(build_overpass_query(tags, polygons=polys), on_wait)
         elements = parse_osm_response(data)
@@ -442,14 +503,25 @@ def merge_rows(rows_by_label):
 
 
 def run_download(province, country=None, categories=None, tags=None, fmt="both",
-                 out_dir=None, progress=None):
+                 out_dir=None, progress=None, cancel_event=None):
     """Programmatic entry point (used by the web app; same pipeline as the CLI).
 
     progress(stage, percent, message) is called as work advances
     (stages: 1 validate, 2 boundary, 3 download, 4 process, 5 save).
+    cancel_event: optional threading.Event; when set the run stops at the next safe checkpoint
+    (before/after each HTTP request, before each retry, before each category, before saving)
+    and raises Cancelled. Nothing partial is left in out_dir.
     Returns dict with 'geojson' (FeatureCollection), 'rows', 'files' and 'datasets'.
     Raises POIError on user-facing problems.
     """
+    token = _cancel_event.set(cancel_event)
+    try:
+        return _run_download(province, country, categories, tags, fmt, out_dir, progress)
+    finally:
+        _cancel_event.reset(token)
+
+
+def _run_download(province, country, categories, tags, fmt, out_dir, progress):
     def report(stage, percent, message):
         log.debug("progress %s/%s: %s", stage, percent, message)
         if progress:
@@ -479,6 +551,7 @@ def run_download(province, country=None, categories=None, tags=None, fmt="both",
     n = len(jobs)
     t0 = time.time()
     for i, (label, jtags) in enumerate(jobs):
+        check_cancelled()  # never start the next category after cancellation
         if config.TIME_BUDGET and time.time() - t0 > config.TIME_BUDGET:
             raise POIError(
                 f"Batas waktu server ({config.TIME_BUDGET} detik) hampir habis sebelum '{label}' "
@@ -493,9 +566,10 @@ def run_download(province, country=None, categories=None, tags=None, fmt="both",
         raw[label] = fetch_elements(jtags, boundary, on_wait)
         report(3, round(start + span), f"'{label}': {len(raw[label])} objek diterima.")
         if i < n - 1:
-            time.sleep(config.REQUEST_DELAY)
+            _sleep(config.REQUEST_DELAY)
 
     # stage 4: normalise / de-duplicate
+    check_cancelled()
     report(4, 84, "Memproses koordinat dan menghapus duplikasi...")
     rows_by_label = {}
     datasets = []
@@ -509,20 +583,44 @@ def run_download(province, country=None, categories=None, tags=None, fmt="both",
         raise POIError(f"Tidak ada POI ditemukan untuk {', '.join(raw)} di {province_name}. "
                        "Periksa tag atau coba kategori lain. Tidak ada file yang ditulis.")
 
-    # stage 5: save (per dataset, plus a combined file when several datasets)
+    # stage 5: save (per dataset, plus a combined file when several datasets).
+    # Files are written to a private staging folder and moved into out_dir only after a final
+    # cancellation check, so a cancelled job never leaves partial files and never touches
+    # results of earlier downloads.
+    check_cancelled()
     report(5, 90, "Menyimpan CSV dan GeoJSON ke folder output...")
     slug = slugify(province_name)
     files = {}
-    for label, rows in rows_by_label.items():
-        if rows:
-            f = save_rows(rows, f"{slug}_{label}", fmt, out_dir)
-            for d in datasets:
-                if d["label"] == label:
-                    d["files"] = {k: v.name for k, v in f.items()}
-            files = {k: v.name for k, v in f.items()}
-    if len([r for r in rows_by_label.values() if r]) > 1:
-        base = f"{slug}_" + "_".join(l for l, r in rows_by_label.items() if r)
-        files = {k: v.name for k, v in save_rows(all_rows, base[:120], fmt, out_dir).items()}
+    created_out_dir = not out_dir.exists()
+    staging = out_dir / f".staging_{uuid.uuid4().hex}"
+    try:
+        for label, rows in rows_by_label.items():
+            if rows:
+                check_cancelled()
+                f = save_rows(rows, f"{slug}_{label}", fmt, staging)
+                for d in datasets:
+                    if d["label"] == label:
+                        d["files"] = {k: v.name for k, v in f.items()}
+                files = {k: v.name for k, v in f.items()}
+        if len([r for r in rows_by_label.values() if r]) > 1:
+            check_cancelled()
+            base = f"{slug}_" + "_".join(l for l, r in rows_by_label.items() if r)
+            files = {k: v.name for k, v in save_rows(all_rows, base[:120], fmt, staging).items()}
+        # CSV text is returned too, so the client never depends on files left on the server
+        # (on serverless hosting the saved files live in a non-persistent temp dir).
+        csv_text = None
+        if "csv" in files:
+            csv_text = (staging / files["csv"]).read_text(encoding="utf-8-sig")
+        check_cancelled()  # last checkpoint: after this the export is committed
+        for p in staging.iterdir():
+            os.replace(p, out_dir / p.name)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+        if created_out_dir:
+            try:
+                out_dir.rmdir()  # only succeeds when empty (i.e. nothing was committed)
+            except OSError:
+                pass
     report(5, 96, "Data tersimpan.")
 
     # GeoJSON returned to the frontend = exactly what export_to_geojson writes
@@ -531,11 +629,6 @@ def run_download(province, country=None, categories=None, tags=None, fmt="both",
         p = Path(td) / "r.geojson"
         export_to_geojson(all_rows, p)
         geojson = json.loads(p.read_text(encoding="utf-8"))
-    # CSV text is returned too, so the client never depends on files left on the server
-    # (on serverless hosting the saved files live in a non-persistent temp dir).
-    csv_text = None
-    if "csv" in files:
-        csv_text = (out_dir / files["csv"]).read_text(encoding="utf-8-sig")
     return {
         "province": province_name, "country": country,
         "boundary": boundary["display_name"], "count": len(all_rows),
@@ -583,7 +676,7 @@ def main(argv=None):
     except POIError as exc:
         log.error("ERROR: %s", exc)
         return 1
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, Cancelled):
         log.error("Interrupted.")
         return 130
 

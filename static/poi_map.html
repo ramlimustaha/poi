@@ -5,33 +5,152 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Pencarian Point of Interest berdasarkan provinsi dan tag OpenStreetMap, dengan tampilan peta interaktif.">
   <title>POI Explorer Indonesia</title>
+  <script>
+    // Apply the saved theme before first paint (default: light).
+    (function () {
+      var t = 'light';
+      try { if (localStorage.getItem('poi-theme') === 'dark') t = 'dark'; } catch (e) {}
+      document.documentElement.setAttribute('data-theme', t);
+    })();
+  </script>
   <link rel="preconnect" href="https://unpkg.com">
   <link rel="preconnect" href="https://tile.openstreetmap.org">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
   <style>
-    :root {
-      --ink: #17231f;
-      --muted: #68766f;
-      --line: #e4eae6;
-      --paper: #f5f8f5;
-      --white: #fff;
-      --green: #176b50;
-      --green-dark: #10523d;
-      --green-soft: #e8f3ed;
-      --orange: #db8c47;
+    :root, :root[data-theme="light"] {
+      /* theme tokens (Light) */
+      --bg-primary: #f5f8f5;
+      --bg-secondary: #fcfdfc;
+      --text-primary: #17231f;
+      --text-secondary: #68766f;
+      --text-tertiary: #87938c;
+      --border-color: #e4eae6;
+      --border-input: #dbe4de;
+      --card-background: #ffffff;
+      --button-background: #ffffff;
+      --button-hover: #f8fbf9;
+      --button-text: #34483e;
+      --button-border-hover: #9ab9a8;
+      --topbar-bg: rgba(255,255,255,.94);
+      --chip-bg: #f7faf8;
+      --chip-border: #dce8e1;
+      --chip-text: #456156;
+      --chip-hover-border: #92b7a4;
+      --row-border: #eff3f0;
+      --row-hover: #f5faf7;
+      --poi-name: #21372c;
+      --poi-coord: #567365;
+      --track: #edf2ee;
+      --orbit: #e6f0ea;
+      --focus-border: #73a992;
+      --focus-ring: rgba(23,107,80,.09);
+      --accent: #176b50;
+      --accent-dark: #10523d;
+      --accent-soft: #e8f3ed;
+      --overlay: rgba(13, 29, 22, .48);
+      --caption-bg: rgba(255,255,255,.94);
+      --danger: #d64545;
+      --danger-dark: #b83232;
+      --danger-text: #8e4733;
+      --danger-bg: #fff8f5;
+      --danger-border: #f0d2c8;
+      --danger-title: #9c4932;
+      --success-bg: #e8f3ed;
+      --success-border: #b9dcc9;
+      --success-text: #10523d;
+      --scroll-thumb: #c4d2ca;
+      --scroll-track: transparent;
       --shadow: 0 18px 55px rgba(25, 48, 38, .09);
+      --shadow-sm: 0 8px 26px rgba(25,48,38,.045);
+      --shadow-modal: 0 25px 85px rgba(0,0,0,.23);
+      color-scheme: light;
+    }
+    :root[data-theme="dark"] {
+      --bg-primary: #0f1613;
+      --bg-secondary: #17211c;
+      --text-primary: #e7efe9;
+      --text-secondary: #a3b2a9;
+      --text-tertiary: #8a998f;
+      --border-color: #2a3731;
+      --border-input: #34443c;
+      --card-background: #1a2420;
+      --button-background: #1f2c26;
+      --button-hover: #28372f;
+      --button-text: #d3e0d8;
+      --button-border-hover: #4f6b5c;
+      --topbar-bg: rgba(21,30,26,.94);
+      --chip-bg: #1f2c26;
+      --chip-border: #34443c;
+      --chip-text: #b9cbc0;
+      --chip-hover-border: #4f8a70;
+      --row-border: #25322b;
+      --row-hover: #223029;
+      --poi-name: #e2ece6;
+      --poi-coord: #8fb3a0;
+      --track: #2a3731;
+      --orbit: #2a3731;
+      --focus-border: #4fa883;
+      --focus-ring: rgba(79,168,131,.22);
+      --accent: #2f9e75;
+      --accent-dark: #3bb184;
+      --accent-soft: #1d3a2e;
+      --overlay: rgba(0, 0, 0, .62);
+      --caption-bg: rgba(26,36,32,.94);
+      --danger: #e05252;
+      --danger-dark: #c43d3d;
+      --danger-text: #f0b4a6;
+      --danger-bg: #3a211d;
+      --danger-border: #6b3a31;
+      --danger-title: #f0a090;
+      --success-bg: #1d3a2e;
+      --success-border: #2f6b52;
+      --success-text: #bdebd3;
+      --scroll-thumb: #3d5046;
+      --shadow: 0 18px 55px rgba(0, 0, 0, .35);
+      --shadow-sm: 0 8px 26px rgba(0,0,0,.25);
+      --shadow-modal: 0 25px 85px rgba(0,0,0,.6);
+      color-scheme: dark;
+    }
+    :root {
+      /* legacy names kept as aliases so existing rules follow the theme */
+      --ink: var(--text-primary);
+      --muted: var(--text-secondary);
+      --line: var(--border-color);
+      --paper: var(--bg-primary);
+      --white: var(--card-background);
+      --green: var(--accent);
+      --green-dark: var(--accent-dark);
+      --green-soft: var(--accent-soft);
+      --orange: #db8c47;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
+    /* smooth ~200ms theme change (class is only present briefly while toggling) */
+    html.theme-anim, html.theme-anim *, html.theme-anim *::before, html.theme-anim *::after {
+      transition: background-color .2s ease, color .2s ease, border-color .2s ease, box-shadow .2s ease, fill .2s ease !important;
+    }
+    * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) var(--scroll-track); }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--scroll-track); }
+    ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 99px; border: 2px solid transparent; background-clip: content-box; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--button-border-hover); background-clip: content-box; border: 2px solid transparent; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: var(--ink); background: var(--paper); }
+    body { margin: 0; color: var(--ink); background: var(--bg-primary); }
     button, input { font: inherit; }
-    .topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(18px, 5vw, 72px); background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line); }
+    .topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(18px, 5vw, 72px); background: var(--topbar-bg); border-bottom: 1px solid var(--line); }
     .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; letter-spacing: -.035em; }
     .brand-mark { width: 35px; height: 35px; display: grid; place-items: center; color: white; background: var(--green); border-radius: 11px; box-shadow: 0 5px 12px rgba(23,107,80,.2); }
     .brand-mark svg { width: 20px; height: 20px; }
     .top-note { color: var(--muted); font-size: 12px; }
+    .top-right { display: flex; align-items: center; gap: 14px; }
+    .theme-toggle { width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; border: 1px solid var(--border-color); border-radius: 999px; background: var(--button-background); color: var(--button-text); cursor: pointer; }
+    .theme-toggle:hover { background: var(--button-hover); border-color: var(--button-border-hover); }
+    .theme-toggle:focus-visible { outline: 2px solid var(--focus-border); outline-offset: 2px; }
+    .theme-toggle svg { width: 18px; height: 18px; }
+    .theme-toggle .icon-sun { display: none; }
+    :root[data-theme="dark"] .theme-toggle .icon-sun { display: block; }
+    :root[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
     .screen { display: none; }
     .screen.active { display: block; }
     .intro { width: min(100% - 36px, 760px); margin: 58px auto 72px; }
@@ -43,11 +162,12 @@
     .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 9px; }
     label { font-size: 13px; font-weight: 750; }
     .field-hint { color: var(--muted); font-size: 11px; }
-    input[type="text"] { width: 100%; height: 52px; padding: 0 15px; border: 1px solid #dbe4de; border-radius: 12px; outline: none; color: var(--ink); background: #fcfdfc; transition: border .15s, box-shadow .15s; }
-    input[type="text"]:focus { border-color: #73a992; box-shadow: 0 0 0 4px rgba(23,107,80,.09); }
+    input[type="text"] { width: 100%; height: 52px; padding: 0 15px; border: 1px solid var(--border-input); border-radius: 12px; outline: none; color: var(--ink); background: var(--bg-secondary); transition: border .15s, box-shadow .15s; }
+    input[type="text"]:focus { border-color: var(--focus-border); box-shadow: 0 0 0 4px var(--focus-ring); }
+    input[type="text"]::placeholder { color: var(--text-tertiary); }
     .examples { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
-    .tag-chip { border: 1px solid #dce8e1; border-radius: 999px; padding: 6px 10px; background: #f7faf8; color: #456156; font-size: 11px; cursor: pointer; }
-    .tag-chip:hover { border-color: #92b7a4; background: var(--green-soft); }
+    .tag-chip { border: 1px solid var(--chip-border); border-radius: 999px; padding: 6px 10px; background: var(--chip-bg); color: var(--chip-text); font-size: 11px; cursor: pointer; }
+    .tag-chip:hover { border-color: var(--chip-hover-border); background: var(--green-soft); }
     .input-footnote { color: var(--muted); font-size: 11px; line-height: 1.6; margin-top: 10px; }
     .primary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 50px; padding: 0 20px; border: 0; border-radius: 12px; background: var(--green); color: white; font-weight: 750; cursor: pointer; transition: transform .15s, background .15s; }
     .primary-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
@@ -55,7 +175,7 @@
     .primary-btn svg { width: 17px; height: 17px; }
     .form-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 3px; }
     .source-note { max-width: 320px; color: var(--muted); font-size: 10px; line-height: 1.5; }
-    .disclaimer { margin: 18px 2px 0; color: #78847d; font-size: 10px; line-height: 1.65; }
+    .disclaimer { margin: 18px 2px 0; color: var(--text-tertiary); font-size: 10px; line-height: 1.65; }
 
     /* Results view */
     .results-screen { min-height: calc(100vh - 68px); padding: 20px clamp(12px, 2vw, 28px) 28px; }
@@ -64,14 +184,15 @@
     .results-title h2 { margin: 0 0 5px; font-size: 21px; letter-spacing: -.035em; }
     .results-subtitle { color: var(--muted); font-size: 12px; }
     .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-    .secondary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 39px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: #34483e; background: white; font-size: 11px; font-weight: 700; cursor: pointer; }
-    .secondary-btn:hover { border-color: #9ab9a8; background: #f8fbf9; }
+    .secondary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 39px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--button-text); background: var(--button-background); font-size: 11px; font-weight: 700; cursor: pointer; }
+    .secondary-btn:hover { border-color: var(--button-border-hover); background: var(--button-hover); }
+    .secondary-btn:disabled { opacity: .6; cursor: not-allowed; }
     .secondary-btn svg { width: 15px; height: 15px; }
     .stats { max-width: 1600px; margin: 0 auto 14px; display: flex; gap: 9px; flex-wrap: wrap; }
-    .stat { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; font-size: 11px; }
+    .stat { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-background); font-size: 11px; }
     .stat strong { font-size: 14px; }
     .workarea { max-width: 1600px; margin: auto; display: grid; grid-template-columns: minmax(280px, 355px) minmax(0, 1fr); gap: 13px; height: min(72vh, 760px); min-height: 510px; }
-    .list-panel, .map-panel { min-height: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: white; box-shadow: 0 8px 26px rgba(25,48,38,.045); }
+    .list-panel, .map-panel { min-height: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--card-background); box-shadow: var(--shadow-sm); }
     .list-panel { display: flex; flex-direction: column; }
     .list-head { padding: 15px; border-bottom: 1px solid var(--line); }
     .list-head-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -79,41 +200,64 @@
     .small-count { color: var(--muted); font-size: 10px; }
     .search-input { height: 39px !important; font-size: 11px; }
     .poi-list { overflow: auto; padding: 5px 9px 10px; }
-    .poi-row { display: block; width: 100%; padding: 11px 9px; border: 0; border-bottom: 1px solid #eff3f0; text-align: left; background: transparent; cursor: pointer; border-radius: 8px; }
-    .poi-row:hover { background: #f5faf7; }
-    .poi-name { display: block; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 750; color: #21372c; }
+    .poi-row { display: block; width: 100%; padding: 11px 9px; border: 0; border-bottom: 1px solid var(--row-border); text-align: left; background: transparent; cursor: pointer; border-radius: 8px; }
+    .poi-row:hover { background: var(--row-hover); }
+    .poi-name { display: block; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 750; color: var(--poi-name); }
     .poi-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; color: var(--muted); font-size: 9px; }
-    .poi-coord { margin-top: 5px; color: #567365; font-size: 9px; font-variant-numeric: tabular-nums; }
+    .poi-coord { margin-top: 5px; color: var(--poi-coord); font-size: 9px; font-variant-numeric: tabular-nums; }
     .list-empty { padding: 25px 12px; color: var(--muted); font-size: 11px; line-height: 1.6; text-align: center; }
     .map-panel { position: relative; }
     #map { width: 100%; height: 100%; min-height: 510px; z-index: 1; }
-    .map-caption { position: absolute; left: 12px; bottom: 12px; z-index: 500; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.94); color: #4e6057; box-shadow: 0 2px 12px rgba(0,0,0,.1); font-size: 9px; }
+    .map-caption { position: absolute; left: 12px; bottom: 12px; z-index: 500; padding: 7px 10px; border-radius: 8px; background: var(--caption-bg); color: var(--text-secondary); box-shadow: 0 2px 12px rgba(0,0,0,.1); font-size: 9px; }
     .map-popup { min-width: 185px; }
     .map-popup strong { display: block; margin-bottom: 5px; font-size: 13px; }
-    .map-popup div { margin: 3px 0; color: #53645b; font-size: 11px; }
+    .map-popup div { margin: 3px 0; color: var(--text-secondary); font-size: 11px; }
     .map-popup a { display: inline-block; margin-top: 7px; color: var(--green); font-size: 11px; font-weight: 700; text-decoration: none; }
     .attribution-note { max-width: 1600px; margin: 10px auto 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
 
     /* Loading dialog */
-    .modal-backdrop { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(13, 29, 22, .48); backdrop-filter: blur(5px); }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; padding: 18px; background: var(--overlay); backdrop-filter: blur(5px); }
     .modal-backdrop.show { display: flex; }
-    .loading-card { width: min(100%, 420px); padding: 29px; border-radius: 20px; background: white; box-shadow: 0 25px 85px rgba(0,0,0,.23); text-align: center; }
-    .loader-orbit { width: 54px; height: 54px; margin: 0 auto 18px; border: 4px solid #e6f0ea; border-top-color: var(--green); border-right-color: var(--green); border-radius: 50%; animation: spin .85s linear infinite; }
+    .loading-card { width: min(100%, 420px); padding: 29px; border-radius: 20px; background: var(--card-background); border: 1px solid var(--border-color); box-shadow: var(--shadow-modal); color: var(--text-primary); text-align: center; }
+    .loader-orbit { width: 54px; height: 54px; margin: 0 auto 18px; border: 4px solid var(--orbit); border-top-color: var(--green); border-right-color: var(--green); border-radius: 50%; animation: spin .85s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
     .loading-card h3 { margin: 0 0 7px; font-size: 18px; letter-spacing: -.025em; }
     .loading-main { min-height: 36px; color: var(--muted); font-size: 12px; line-height: 1.6; }
-    .progress-track { height: 7px; margin: 19px 0 9px; overflow: hidden; border-radius: 99px; background: #edf2ee; }
+    .progress-track { height: 7px; margin: 19px 0 9px; overflow: hidden; border-radius: 99px; background: var(--track); }
     .progress-fill { width: 8%; height: 100%; border-radius: inherit; background: var(--green); transition: width .4s ease; }
-    .progress-label { display: flex; justify-content: space-between; color: #87938c; font-size: 10px; }
-    .loading-small { margin-top: 17px; color: #87938c; font-size: 10px; line-height: 1.55; }
-    .error-box { display: none; margin-top: 17px; padding: 12px; border: 1px solid #f0d2c8; border-radius: 10px; background: #fff8f5; color: #8e4733; font-size: 11px; line-height: 1.6; text-align: left; }
+    .progress-label { display: flex; justify-content: space-between; color: var(--text-tertiary); font-size: 10px; }
+    .loading-small { margin-top: 17px; color: var(--text-tertiary); font-size: 10px; line-height: 1.55; }
+    .error-box { display: none; margin-top: 17px; padding: 12px; border: 1px solid var(--danger-border); border-radius: 10px; background: var(--danger-bg); color: var(--danger-text); font-size: 11px; line-height: 1.6; text-align: left; }
     .modal-backdrop.failed .loader-orbit { display: none; }
     .modal-backdrop.failed .error-box { display: block; }
     .modal-backdrop.failed .progress-track, .modal-backdrop.failed .progress-label { display: none; }
-    .modal-backdrop.failed .loading-card h3 { color: #9c4932; }
+    .modal-backdrop.failed .loading-card h3 { color: var(--danger-title); }
     .modal-close { display: none; margin-top: 16px; }
     .modal-backdrop.failed .modal-close { display: inline-flex; }
-    .footer { padding: 0 18px 28px; color: #87938c; font-size: 10px; text-align: center; }
+    .cancel-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 44px; margin-top: 20px; padding: 0 16px; border: 0; border-radius: 12px; background: var(--danger); color: #fff; font-weight: 750; font-size: 13px; cursor: pointer; transition: background .15s, opacity .15s; }
+    .cancel-btn:hover:not(:disabled) { background: var(--danger-dark); }
+    .cancel-btn:disabled { opacity: .6; cursor: not-allowed; }
+    .cancel-btn svg { width: 17px; height: 17px; }
+    .modal-backdrop.failed .cancel-btn { display: none; }
+
+    /* Toast notifications (success / error) */
+    .toast { position: fixed; top: 80px; right: 18px; z-index: 3000; max-width: min(92vw, 380px); display: none; padding: 12px 16px; border: 1px solid var(--success-border); border-radius: 12px; background: var(--success-bg); color: var(--success-text); box-shadow: var(--shadow); font-size: 12px; font-weight: 650; line-height: 1.5; }
+    .toast.show { display: block; }
+    .toast.error { border-color: var(--danger-border); background: var(--danger-bg); color: var(--danger-text); }
+
+    /* Leaflet follows the active theme (OSM attribution stays visible) */
+    .leaflet-container { background: var(--bg-secondary); font-family: inherit; }
+    .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--card-background); color: var(--text-primary); border: 1px solid var(--border-color); }
+    .leaflet-popup-content { color: var(--text-primary); }
+    .leaflet-popup-close-button { color: var(--text-secondary) !important; }
+    .leaflet-bar a, .leaflet-bar a:hover { background-color: var(--button-background); color: var(--button-text); border-bottom-color: var(--border-color); }
+    .leaflet-bar a:hover { background-color: var(--button-hover); }
+    .leaflet-bar { border: 1px solid var(--border-color); box-shadow: none; }
+    .leaflet-control-attribution { background: var(--caption-bg) !important; color: var(--text-secondary) !important; }
+    .leaflet-control-attribution a { color: var(--accent) !important; }
+    :root[data-theme="dark"] .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9); }
+
+    .footer { padding: 0 18px 28px; color: var(--text-tertiary); font-size: 10px; text-align: center; }
 
     @media (max-width: 760px) {
       .topbar { height: 60px; }
@@ -142,7 +286,13 @@
       </span>
       <span>POI Explorer <span style="color:var(--green)">Indonesia</span></span>
     </div>
-    <div class="top-note">OpenStreetMap data · Interactive POI map</div>
+    <div class="top-right">
+      <div class="top-note">OpenStreetMap data · Interactive POI map</div>
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="Aktifkan Dark Mode" title="Aktifkan Dark Mode" aria-pressed="false">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </button>
+    </div>
   </header>
 
   <main>
@@ -232,9 +382,15 @@
       <div class="progress-label"><span id="progressStep">Memulai</span><span id="progressPercent">5%</span></div>
       <div class="loading-small">Pengambilan data provinsi dapat memerlukan waktu beberapa menit, tergantung jumlah POI dan kondisi server.</div>
       <div id="errorMessage" class="error-box"></div>
+      <button id="cancelSearch" class="cancel-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>
+        <span id="cancelLabel">Cancel Search</span>
+      </button>
       <button id="closeError" class="secondary-btn modal-close" type="button">Kembali ke form</button>
     </div>
   </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <div class="footer">POI Explorer Indonesia · Built with Leaflet and OpenStreetMap</div>
 
@@ -249,6 +405,7 @@
     let currentPois = [];
     let markerIndex = new Map();
     let currentSearch = { province: '', files: {} };
+    let currentJob = null;   // { id, cancelRequested }
     const STAGES = ['Validasi input', 'Mencari boundary provinsi', 'Mengambil POI', 'Memproses koordinat', 'Menyimpan data', 'Menampilkan peta'];
 
     function escapeHtml(value) {
@@ -286,9 +443,47 @@
     }
 
 
+    // ---------- theme (Light default, persisted in localStorage) ----------
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      const dark = theme === 'dark';
+      const btn = $('themeToggle');
+      const label = dark ? 'Aktifkan Light Mode' : 'Aktifkan Dark Mode';
+      btn.setAttribute('aria-label', label);
+      btn.setAttribute('title', label);
+      btn.setAttribute('aria-pressed', String(dark));
+    }
+    function toggleTheme() {
+      const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+      const root = document.documentElement;
+      root.classList.add('theme-anim');
+      applyTheme(next);
+      try { localStorage.setItem('poi-theme', next); } catch (_) {}
+      setTimeout(() => root.classList.remove('theme-anim'), 260);
+    }
+
+    // ---------- toast ----------
+    let toastTimer = null;
+    function showToast(message, kind = 'success') {
+      const el = $('toast');
+      el.textContent = message;
+      el.classList.toggle('error', kind === 'error');
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 4500);
+    }
+
+    class SearchCancelled extends Error {}
+
+    function resetCancelButton() {
+      $('cancelSearch').disabled = false;
+      $('cancelLabel').textContent = 'Cancel Search';
+    }
+
     function showModal() {
       $('loadingModal').classList.add('show');
       $('loadingModal').classList.remove('failed');
+      resetCancelButton();
       $('errorMessage').textContent = '';
       setProgress(5, 'Memulai', 'Menyiapkan pencarian...');
     }
@@ -429,6 +624,32 @@
       setTimeout(closeModal, 450);
     }
 
+    // Asks the backend to cancel. The search is only considered cancelled once the backend
+    // confirms it through the SSE stream (event "cancelled"), never just because we stopped listening.
+    async function sendCancel(jobId) {
+      try {
+        const res = await fetch(`/api/poi/cancel/${encodeURIComponent(jobId)}`, { method: 'POST' });
+        if (res.ok) return;
+        let detail = `HTTP ${res.status}`;
+        try { const b = await res.json(); detail = typeof b.detail === 'string' ? b.detail : (b.detail && b.detail.message) || detail; } catch (_) {}
+        throw new Error(detail);
+      } catch (error) {
+        // cancel request failed: the job is still running, so let the user retry
+        if (currentJob) currentJob.cancelRequested = false;
+        resetCancelButton();
+        showToast(`Gagal membatalkan pencarian: ${error.message}`, 'error');
+      }
+    }
+
+    function cancelSearch() {
+      if (!currentJob || currentJob.cancelRequested) return;
+      currentJob.cancelRequested = true;
+      $('cancelSearch').disabled = true;
+      $('cancelLabel').textContent = 'Cancelling search...';
+      $('loadingMessage').textContent = 'Cancelling search...';
+      if (currentJob.id) sendCancel(currentJob.id);  // otherwise sent as soon as the job id arrives
+    }
+
     // Sends the request to the FastAPI backend and follows its real progress via SSE.
     async function requestPoi(payload) {
       let response;
@@ -450,13 +671,23 @@
       const decoder = new TextDecoder();
       let buffer = '';
       let result = null;
+      let cancelled = false;
       const handle = (chunk) => {
         const line = chunk.split('\n').find((l) => l.startsWith('data:'));
         if (!line) return;
         const event = JSON.parse(line.slice(5).trim());
-        if (event.type === 'progress') {
+        if (event.type === 'job') {
+          currentJob.id = event.job_id;
+          if (currentJob.cancelRequested) sendCancel(event.job_id);
+        } else if (event.type === 'progress') {
           const stage = Math.max(1, Math.min(6, event.stage));
-          setProgress(event.percent, `Tahap ${stage}/6 · ${STAGES[stage - 1]}`, event.message);
+          if (currentJob.cancelRequested) {
+            $('progressStep').textContent = 'Membatalkan...';  // keep "Cancelling search..." visible
+          } else {
+            setProgress(event.percent, `Tahap ${stage}/6 · ${STAGES[stage - 1]}`, event.message);
+          }
+        } else if (event.type === 'cancelled') {
+          cancelled = true;
         } else if (event.type === 'error') {
           throw new Error(event.message);
         } else if (event.type === 'result') {
@@ -472,6 +703,14 @@
           handle(buffer.slice(0, sep));
           buffer = buffer.slice(sep + 2);
         }
+      }
+      if (cancelled) throw new SearchCancelled('Search cancelled successfully');
+      if (!result && currentJob.cancelRequested && currentJob.id) {
+        // stream closed without a final event: ask the backend for the real state
+        try {
+          const st = await (await fetch(`/api/poi/status/${currentJob.id}`)).json();
+          if (st.status === 'cancelled') throw new SearchCancelled('Search cancelled successfully');
+        } catch (e) { if (e instanceof SearchCancelled) throw e; }
       }
       if (!result) throw new Error('Koneksi ke backend terputus sebelum hasil diterima. Periksa logs/poi_downloader.log.');
       return result;
@@ -493,14 +732,23 @@
         return;
       }
       $('searchButton').disabled = true;
+      currentJob = { id: null, cancelRequested: false };
       showModal();
       try {
         const data = await requestPoi({ province, category: parsed.category, tags: parsed.tags, format: 'both' });
         finishAndRender(data, province);
       } catch (error) {
-        console.error(error);
-        showFailure(error);
+        if (error instanceof SearchCancelled) {
+          // confirmed by the backend: back to the search page, new searches allowed
+          closeModal();
+          switchScreen('searchScreen');
+          showToast('Search cancelled successfully', 'success');
+        } else {
+          console.error(error);
+          showFailure(error);
+        }
       } finally {
+        currentJob = null;
         $('searchButton').disabled = false;
       }
     }
@@ -531,6 +779,9 @@
     const exportGeoJson = () => downloadSaved('geojson');
 
     $('searchForm').addEventListener('submit', runSearch);
+    $('themeToggle').addEventListener('click', toggleTheme);
+    $('cancelSearch').addEventListener('click', cancelSearch);
+    applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light');
     $('closeError').addEventListener('click', () => closeModal());
     $('newSearch').addEventListener('click', () => switchScreen('searchScreen'));
     $('downloadCsv').addEventListener('click', exportCsv);

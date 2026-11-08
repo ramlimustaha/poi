@@ -82,13 +82,35 @@ Frontend Leaflet (static/poi_map.html) + backend FastAPI (app.py) yang memanggil
 ```bash
 pip install -r requirements.txt
 python -m uvicorn app:app --host 127.0.0.1 --port 8000
-```n
+```
+
 Buka http://127.0.0.1:8000. Isi provinsi dan kategori/tag (pisahkan koma, mis. `airport, hospital, amenity=clinic`). Progres tampil real-time lewat SSE; CSV/GeoJSON disimpan ke `output/` dan tombol download di peta mengunduh file yang sama persis.
 
 - `POST /api/poi` body: `{province, category[], tags[], format, stream}`. `stream=true` mengembalikan SSE, selain itu JSON berisi `geojson`, `files`, `datasets`.
 - Respons juga berisi `csv` (teks) dan `geojson`; tombol download di frontend membuat file dari respons, tanpa bergantung pada file di server. `GET /api/health` untuk cek status.
 - Jika beberapa kategori dipilih, selain file per kategori dibuat file gabungan (`<provinsi>_<kat1>_<kat2>`) tanpa duplikasi.
 - Tes offline (mock): `python -m unittest tests.test_offline -v`; tes live: `python tests/e2e_live.py`.
+- Tes cancel lewat HTTP/SSE nyata: `python tests/e2e_cancel.py --mock` (tanpa jaringan) atau `python tests/e2e_cancel.py` (live, airport Jawa Barat).
+
+### Dark Mode / Light Mode
+Tombol bulat kecil di kanan atas header. Default **Light Mode**; satu klik langsung berganti tema (tanpa menu), transisi ~200 ms. Tombol menampilkan ikon tujuan: **Moon** saat Light Mode (klik untuk Dark), **Sun** saat Dark Mode (klik untuk kembali ke Light). Pilihan disimpan di `localStorage` (kunci `poi-theme`) dan diterapkan sebelum halaman tampil, jadi tidak berkedip saat refresh.
+Warna dikelola lewat CSS variables di `static/poi_map.html` (`--bg-primary`, `--bg-secondary`, `--text-primary`, `--text-secondary`, `--border-color`, `--card-background`, `--button-background`, dst.) pada `:root` (light) dan `:root[data-theme="dark"]`. Popup, kontrol zoom, dan atribusi Leaflet mengikuti tema; di Dark Mode tile peta digelapkan dengan CSS filter. Atribusi OpenStreetMap tetap tampil.
+
+### Cancel Search
+Setiap pencarian streaming mendapat **job ID unik** (event SSE pertama: `{"type":"job","job_id":...}`). Tombol **Cancel Search** (merah, selalu terlihat saat loading) bekerja begini:
+
+1. Frontend `POST /api/poi/cancel/{job_id}`, tombol menjadi disabled dan tampil "Cancelling search...".
+2. Backend men-set cancellation event milik job tersebut.
+3. `download_poi.py` berhenti di checkpoint aman berikutnya: sebelum/sesudah setiap HTTP request, sebelum retry (jeda backoff ikut terputus), sebelum pindah kategori, sebelum memproses dan sebelum menyimpan.
+4. Backend melepas lock "sedang memproses", lalu mengirim event SSE `cancelled`. **Hanya setelah event ini** frontend menutup progress, menampilkan notifikasi "Search cancelled successfully", dan kembali ke halaman pencarian.
+
+- Endpoint: `POST /api/poi/cancel/{job_id}` (400 ID tidak valid, 404 tidak ditemukan, 409 job sudah selesai, 200 `cancelling`/`cancelled`), `GET /api/poi/status/{job_id}`. Endpoint `POST /api/poi` tidak berubah.
+- Status event SSE: `processing` (progress), `completed` (result), `cancelled`, `error`.
+- Job ID acak 128-bit, hanya diketahui pembuatnya; membatalkan satu job tidak memengaruhi job lain, dan job yang sudah selesai tidak diubah.
+- **Batasan HTTP**: library `requests` tidak bisa memutus request yang sedang menunggu. Saat cancel, job berhenti menunggu seketika (dalam ~0,2 detik) dan tidak melanjutkan apa pun, tetapi koneksi ke Overpass yang sudah terkirim dibiarkan selesai/timeout sendiri di thread terpisah dan hasilnya dibuang. Server Overpass mungkin masih menyelesaikan query tersebut.
+- **File output**: file ditulis ke folder staging sementara dan baru dipindahkan ke `output/` setelah pengecekan cancel terakhir. Jika dibatalkan, staging dihapus; tidak ada file parsial dan hasil download sebelumnya tidak disentuh.
+- Jika koneksi SSE browser terputus (tab ditutup), job otomatis dibatalkan agar lock tidak tertahan.
+- Vercel: job disimpan di memori proses. Pada serverless, request cancel bisa jatuh ke instance lain (respons 404, frontend menampilkan error dan tombol Cancel aktif kembali; job tetap berjalan sampai selesai/`maxDuration`). Dengan Fluid Compute biasanya instance yang sama dipakai bersama, tetapi tidak dijamin. Tidak ada dependency baru.
 
 
 ## Deploy ke Vercel
