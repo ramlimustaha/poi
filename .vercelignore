@@ -1,0 +1,8 @@
+output
+logs
+.cache
+tests
+__pycache__
+.venv
+scratch_check.js
+Contoh Prompt.txt

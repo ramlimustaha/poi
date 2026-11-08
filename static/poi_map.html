@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Pencarian Point of Interest berdasarkan provinsi dan tag OpenStreetMap, dengan tampilan peta interaktif.">
+  <title>POI Explorer Indonesia</title>
+  <link rel="preconnect" href="https://unpkg.com">
+  <link rel="preconnect" href="https://tile.openstreetmap.org">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+  <style>
+    :root {
+      --ink: #17231f;
+      --muted: #68766f;
+      --line: #e4eae6;
+      --paper: #f5f8f5;
+      --white: #fff;
+      --green: #176b50;
+      --green-dark: #10523d;
+      --green-soft: #e8f3ed;
+      --orange: #db8c47;
+      --shadow: 0 18px 55px rgba(25, 48, 38, .09);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    button, input { font: inherit; }
+    .topbar { height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 0 clamp(18px, 5vw, 72px); background: rgba(255,255,255,.94); border-bottom: 1px solid var(--line); }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; letter-spacing: -.035em; }
+    .brand-mark { width: 35px; height: 35px; display: grid; place-items: center; color: white; background: var(--green); border-radius: 11px; box-shadow: 0 5px 12px rgba(23,107,80,.2); }
+    .brand-mark svg { width: 20px; height: 20px; }
+    .top-note { color: var(--muted); font-size: 12px; }
+    .screen { display: none; }
+    .screen.active { display: block; }
+    .intro { width: min(100% - 36px, 760px); margin: 58px auto 72px; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--green); background: var(--green-soft); padding: 7px 11px; border-radius: 999px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 19px 0 12px; font-size: clamp(34px, 5vw, 52px); line-height: 1.04; letter-spacing: -.055em; }
+    .lead { max-width: 610px; color: var(--muted); font-size: 15px; line-height: 1.75; }
+    .form-card { margin-top: 31px; padding: clamp(21px, 4vw, 34px); border: 1px solid var(--line); border-radius: 22px; background: var(--white); box-shadow: var(--shadow); }
+    .field { margin-bottom: 22px; }
+    .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 9px; }
+    label { font-size: 13px; font-weight: 750; }
+    .field-hint { color: var(--muted); font-size: 11px; }
+    input[type="text"] { width: 100%; height: 52px; padding: 0 15px; border: 1px solid #dbe4de; border-radius: 12px; outline: none; color: var(--ink); background: #fcfdfc; transition: border .15s, box-shadow .15s; }
+    input[type="text"]:focus { border-color: #73a992; box-shadow: 0 0 0 4px rgba(23,107,80,.09); }
+    .examples { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+    .tag-chip { border: 1px solid #dce8e1; border-radius: 999px; padding: 6px 10px; background: #f7faf8; color: #456156; font-size: 11px; cursor: pointer; }
+    .tag-chip:hover { border-color: #92b7a4; background: var(--green-soft); }
+    .input-footnote { color: var(--muted); font-size: 11px; line-height: 1.6; margin-top: 10px; }
+    .primary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 50px; padding: 0 20px; border: 0; border-radius: 12px; background: var(--green); color: white; font-weight: 750; cursor: pointer; transition: transform .15s, background .15s; }
+    .primary-btn:hover { background: var(--green-dark); transform: translateY(-1px); }
+    .primary-btn:disabled { cursor: wait; opacity: .65; transform: none; }
+    .primary-btn svg { width: 17px; height: 17px; }
+    .form-actions { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 3px; }
+    .source-note { max-width: 320px; color: var(--muted); font-size: 10px; line-height: 1.5; }
+    .disclaimer { margin: 18px 2px 0; color: #78847d; font-size: 10px; line-height: 1.65; }
+
+    /* Results view */
+    .results-screen { min-height: calc(100vh - 68px); padding: 20px clamp(12px, 2vw, 28px) 28px; }
+    .results-head { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin: 0 auto 16px; max-width: 1600px; }
+    .results-title { min-width: 0; }
+    .results-title h2 { margin: 0 0 5px; font-size: 21px; letter-spacing: -.035em; }
+    .results-subtitle { color: var(--muted); font-size: 12px; }
+    .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .secondary-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 39px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; color: #34483e; background: white; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .secondary-btn:hover { border-color: #9ab9a8; background: #f8fbf9; }
+    .secondary-btn svg { width: 15px; height: 15px; }
+    .stats { max-width: 1600px; margin: 0 auto 14px; display: flex; gap: 9px; flex-wrap: wrap; }
+    .stat { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: white; font-size: 11px; }
+    .stat strong { font-size: 14px; }
+    .workarea { max-width: 1600px; margin: auto; display: grid; grid-template-columns: minmax(280px, 355px) minmax(0, 1fr); gap: 13px; height: min(72vh, 760px); min-height: 510px; }
+    .list-panel, .map-panel { min-height: 0; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: white; box-shadow: 0 8px 26px rgba(25,48,38,.045); }
+    .list-panel { display: flex; flex-direction: column; }
+    .list-head { padding: 15px; border-bottom: 1px solid var(--line); }
+    .list-head-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .list-head h3 { margin: 0; font-size: 13px; }
+    .small-count { color: var(--muted); font-size: 10px; }
+    .search-input { height: 39px !important; font-size: 11px; }
+    .poi-list { overflow: auto; padding: 5px 9px 10px; }
+    .poi-row { display: block; width: 100%; padding: 11px 9px; border: 0; border-bottom: 1px solid #eff3f0; text-align: left; background: transparent; cursor: pointer; border-radius: 8px; }
+    .poi-row:hover { background: #f5faf7; }
+    .poi-name { display: block; margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 750; color: #21372c; }
+    .poi-meta { display: flex; flex-wrap: wrap; gap: 5px 9px; color: var(--muted); font-size: 9px; }
+    .poi-coord { margin-top: 5px; color: #567365; font-size: 9px; font-variant-numeric: tabular-nums; }
+    .list-empty { padding: 25px 12px; color: var(--muted); font-size: 11px; line-height: 1.6; text-align: center; }
+    .map-panel { position: relative; }
+    #map { width: 100%; height: 100%; min-height: 510px; z-index: 1; }
+    .map-caption { position: absolute; left: 12px; bottom: 12px; z-index: 500; padding: 7px 10px; border-radius: 8px; background: rgba(255,255,255,.94); color: #4e6057; box-shadow: 0 2px 12px rgba(0,0,0,.1); font-size: 9px; }
+    .map-popup { min-width: 185px; }
+    .map-popup strong { display: block; margin-bottom: 5px; font-size: 13px; }
+    .map-popup div { margin: 3px 0; color: #53645b; font-size: 11px; }
+    .map-popup a { display: inline-block; margin-top: 7px; color: var(--green); font-size: 11px; font-weight: 700; text-decoration: none; }
+    .attribution-note { max-width: 1600px; margin: 10px auto 0; color: var(--muted); font-size: 10px; line-height: 1.6; }
+
+    /* Loading dialog */
+    .modal-backdrop { position: fixed; inset: 0; z-index: 2000; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(13, 29, 22, .48); backdrop-filter: blur(5px); }
+    .modal-backdrop.show { display: flex; }
+    .loading-card { width: min(100%, 420px); padding: 29px; border-radius: 20px; background: white; box-shadow: 0 25px 85px rgba(0,0,0,.23); text-align: center; }
+    .loader-orbit { width: 54px; height: 54px; margin: 0 auto 18px; border: 4px solid #e6f0ea; border-top-color: var(--green); border-right-color: var(--green); border-radius: 50%; animation: spin .85s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-card h3 { margin: 0 0 7px; font-size: 18px; letter-spacing: -.025em; }
+    .loading-main { min-height: 36px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .progress-track { height: 7px; margin: 19px 0 9px; overflow: hidden; border-radius: 99px; background: #edf2ee; }
+    .progress-fill { width: 8%; height: 100%; border-radius: inherit; background: var(--green); transition: width .4s ease; }
+    .progress-label { display: flex; justify-content: space-between; color: #87938c; font-size: 10px; }
+    .loading-small { margin-top: 17px; color: #87938c; font-size: 10px; line-height: 1.55; }
+    .error-box { display: none; margin-top: 17px; padding: 12px; border: 1px solid #f0d2c8; border-radius: 10px; background: #fff8f5; color: #8e4733; font-size: 11px; line-height: 1.6; text-align: left; }
+    .modal-backdrop.failed .loader-orbit { display: none; }
+    .modal-backdrop.failed .error-box { display: block; }
+    .modal-backdrop.failed .progress-track, .modal-backdrop.failed .progress-label { display: none; }
+    .modal-backdrop.failed .loading-card h3 { color: #9c4932; }
+    .modal-close { display: none; margin-top: 16px; }
+    .modal-backdrop.failed .modal-close { display: inline-flex; }
+    .footer { padding: 0 18px 28px; color: #87938c; font-size: 10px; text-align: center; }
+
+    @media (max-width: 760px) {
+      .topbar { height: 60px; }
+      .top-note { display: none; }
+      .intro { margin-top: 36px; }
+      .form-actions { align-items: stretch; flex-direction: column; }
+      .form-actions .primary-btn { width: 100%; }
+      .source-note { max-width: none; }
+      .results-screen { padding: 14px 10px 22px; }
+      .results-head { align-items: flex-start; flex-direction: column; }
+      .head-actions { justify-content: flex-start; }
+      .workarea { grid-template-columns: 1fr; height: auto; }
+      .map-panel { order: 1; height: 55vh; min-height: 390px; }
+      .list-panel { order: 2; height: 330px; }
+      #map { min-height: 390px; }
+      .stats { gap: 6px; }
+      .stat { padding: 8px 9px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      </span>
+      <span>POI Explorer <span style="color:var(--green)">Indonesia</span></span>
+    </div>
+    <div class="top-note">OpenStreetMap data · Interactive POI map</div>
+  </header>
+
+  <main>
+    <section id="searchScreen" class="screen active">
+      <div class="intro">
+        <div class="eyebrow"><span>●</span> Point of Interest Finder</div>
+        <h1>Temukan POI di<br>setiap provinsi.</h1>
+        <p class="lead">Masukkan provinsi dan kategori yang ingin dicari. Data akan diambil dari OpenStreetMap, kemudian ditampilkan sebagai titik koordinat di peta interaktif.</p>
+
+        <form id="searchForm" class="form-card">
+          <div class="field">
+            <div class="field-head">
+              <label for="provinceInput">Provinsi</label>
+              <span class="field-hint">Contoh: Jawa Barat</span>
+            </div>
+            <input id="provinceInput" type="text" value="Jawa Barat" placeholder="Masukkan nama provinsi" autocomplete="off" required>
+          </div>
+
+          <div class="field">
+            <div class="field-head">
+              <label for="poiInput">Kategori POI / custom OSM tag</label>
+              <span class="field-hint">Bisa lebih dari satu</span>
+            </div>
+            <input id="poiInput" type="text" value="airport, hospital" placeholder="Contoh: airport, hospital, amenity=school" autocomplete="off" required>
+            <div class="examples" aria-label="Contoh kategori cepat">
+              <button class="tag-chip" type="button" data-value="airport">Airport</button>
+              <button class="tag-chip" type="button" data-value="hospital">Hospital</button>
+              <button class="tag-chip" type="button" data-value="school">School</button>
+              <button class="tag-chip" type="button" data-value="restaurant">Restaurant</button>
+              <button class="tag-chip" type="button" data-value="amenity=pharmacy">Custom: pharmacy</button>
+            </div>
+            <div class="input-footnote">Ketik kategori seperti <b>airport</b> atau <b>hospital</b>, pisahkan dengan koma. Untuk tag khusus, gunakan format <b>key=value</b>, misalnya <b>amenity=clinic</b> atau <b>shop=supermarket</b>.</div>
+          </div>
+
+          <div class="form-actions">
+            <div class="source-note">Hasil bergantung pada kelengkapan data OpenStreetMap dan ketersediaan server publik. Pencarian provinsi dilakukan saat tombol ditekan, bukan otomatis.</div>
+            <button id="searchButton" class="primary-btn" type="submit">
+              Cari POI di peta
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+          </div>
+        </form>
+        <p class="disclaimer">Data © OpenStreetMap contributors, tersedia di bawah lisensi Open Database License (ODbL). Aplikasi ini menggunakan layanan publik Nominatim dan Overpass; hindari pencarian berulang secara masif.</p>
+      </div>
+    </section>
+
+    <section id="resultsScreen" class="screen results-screen">
+      <div class="results-head">
+        <div class="results-title">
+          <h2 id="resultHeading">POI ditemukan</h2>
+          <div class="results-subtitle" id="resultSubtitle">Provinsi · Kategori</div>
+        </div>
+        <div class="head-actions">
+          <button id="downloadCsv" class="secondary-btn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg> CSV
+          </button>
+          <button id="downloadGeojson" class="secondary-btn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5M12 15V3"/></svg> GeoJSON
+          </button>
+          <button id="newSearch" class="secondary-btn" type="button">← Pencarian baru</button>
+        </div>
+      </div>
+      <div class="stats" id="statsBar"></div>
+      <div class="workarea">
+        <aside class="list-panel">
+          <div class="list-head">
+            <div class="list-head-top"><h3>Daftar POI</h3><span id="listCount" class="small-count"></span></div>
+            <input id="listSearch" class="search-input" type="text" placeholder="Filter nama POI..." autocomplete="off">
+          </div>
+          <div id="poiList" class="poi-list"></div>
+        </aside>
+        <div class="map-panel">
+          <div id="map" aria-label="Peta koordinat POI"></div>
+          <div class="map-caption">Klik marker untuk melihat nama dan koordinat POI</div>
+        </div>
+      </div>
+      <div class="attribution-note" id="dataTimestamp">Sumber data: OpenStreetMap · Koordinat way dan relation menggunakan titik center dari Overpass.</div>
+    </section>
+  </main>
+
+  <div id="loadingModal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="loadingTitle">
+    <div class="loading-card">
+      <div class="loader-orbit" aria-hidden="true"></div>
+      <h3 id="loadingTitle">Mengambil data POI</h3>
+      <div id="loadingMessage" class="loading-main" aria-live="polite">Menyiapkan pencarian...</div>
+      <div class="progress-track"><div id="progressFill" class="progress-fill"></div></div>
+      <div class="progress-label"><span id="progressStep">Memulai</span><span id="progressPercent">5%</span></div>
+      <div class="loading-small">Pengambilan data provinsi dapat memerlukan waktu beberapa menit, tergantung jumlah POI dan kondisi server.</div>
+      <div id="errorMessage" class="error-box"></div>
+      <button id="closeError" class="secondary-btn modal-close" type="button">Kembali ke form</button>
+    </div>
+  </div>
+
+  <div class="footer">POI Explorer Indonesia · Built with Leaflet and OpenStreetMap</div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+  <script>
+    'use strict';
+
+    const $ = (id) => document.getElementById(id);
+    let mapInstance = null;
+    let markerLayer = null;
+    let currentPois = [];
+    let markerIndex = new Map();
+    let currentSearch = { province: '', files: {} };
+    const STAGES = ['Validasi input', 'Mencari boundary provinsi', 'Mengambil POI', 'Memproses koordinat', 'Menyimpan data', 'Menampilkan peta'];
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[char]);
+    }
+
+    function slugify(value) {
+      return String(value).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'poi';
+    }
+
+    // Frontend only splits the input: names go to "category" (mapped by config.py in the
+    // backend), key=value items go to "tags". Validation/mapping is done by Python.
+    function parsePoiInput(raw) {
+      const parts = raw.split(/[;,\n]+/).map((part) => part.trim()).filter(Boolean);
+      if (!parts.length) throw new Error('Masukkan minimal satu kategori POI atau OSM tag.');
+      const category = [], tags = [];
+      for (const part of parts) {
+        if (part.includes('=')) {
+          const equalAt = part.indexOf('=');
+          const key = part.slice(0, equalAt).trim();
+          const value = part.slice(equalAt + 1).trim();
+          if (!/^[A-Za-z0-9_:.-]+$/.test(key) || !value) {
+            throw new Error(`Format tag tidak valid: "${part}". Gunakan format key=value, misalnya amenity=clinic.`);
+          }
+          if (!tags.includes(`${key}=${value}`)) tags.push(`${key}=${value}`);
+        } else {
+          const normalized = part.toLowerCase().replace(/[\s-]+/g, '_');
+          if (!category.includes(normalized)) category.push(normalized);
+        }
+      }
+      return { category, tags };
+    }
+
+
+    function showModal() {
+      $('loadingModal').classList.add('show');
+      $('loadingModal').classList.remove('failed');
+      $('errorMessage').textContent = '';
+      setProgress(5, 'Memulai', 'Menyiapkan pencarian...');
+    }
+
+    function setProgress(percent, step, message) {
+      $('progressFill').style.width = `${Math.max(0, Math.min(100, percent))}%`;
+      $('progressPercent').textContent = `${Math.max(0, Math.min(100, percent))}%`;
+      $('progressStep').textContent = step;
+      $('loadingMessage').textContent = message;
+    }
+
+    function showFailure(error) {
+      $('loadingModal').classList.add('failed');
+      $('loadingTitle').textContent = 'Pengambilan data gagal';
+      $('loadingMessage').textContent = 'Data POI belum berhasil diambil.';
+      $('errorMessage').textContent = error.message || String(error);
+    }
+
+    function closeModal() {
+      $('loadingModal').classList.remove('show', 'failed');
+      $('loadingTitle').textContent = 'Mengambil data POI';
+    }
+
+    function switchScreen(screenId) {
+      $('searchScreen').classList.toggle('active', screenId === 'searchScreen');
+      $('resultsScreen').classList.toggle('active', screenId === 'resultsScreen');
+    }
+
+    function renderStats() {
+      const categoryCounts = new Map();
+      currentPois.forEach((poi) => {
+        poi.category.split(', ').forEach((category) => categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1));
+      });
+      const chips = [
+        `<div class="stat"><strong>${currentPois.length.toLocaleString('id-ID')}</strong><span>Total POI</span></div>`,
+        `<div class="stat"><strong>${categoryCounts.size}</strong><span>Kategori tag</span></div>`,
+        `<div class="stat"><strong>${new Set(currentPois.map((poi) => poi.osm_type)).size}</strong><span>Tipe OSM</span></div>`
+      ];
+      $('statsBar').innerHTML = chips.join('');
+    }
+
+    function makePopup(poi) {
+      return `<div class="map-popup"><strong>${escapeHtml(poi.name)}</strong>` +
+        `<div>Kategori: ${escapeHtml(poi.category)}</div>` +
+        `<div>Tipe: ${escapeHtml(poi.osm_type)} · OSM ID: ${poi.osm_id}</div>` +
+        `<div>Lat: ${poi.latitude.toFixed(6)}</div><div>Lon: ${poi.longitude.toFixed(6)}</div>` +
+        `<a href="${escapeHtml(poi.osm_url)}" target="_blank" rel="noopener noreferrer">Buka objek di OpenStreetMap ↗</a></div>`;
+    }
+
+    function createMap() {
+      if (mapInstance) {
+        mapInstance.remove();
+        mapInstance = null;
+      }
+      mapInstance = L.map('map', { preferCanvas: true, scrollWheelZoom: true });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>'
+      }).addTo(mapInstance);
+      markerLayer = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 48 });
+      markerIndex = new Map();
+      const bounds = [];
+      for (const poi of currentPois) {
+        const key = `${poi.osm_type}/${poi.osm_id}`;
+        const marker = L.marker([poi.latitude, poi.longitude], { title: poi.name });
+        marker.bindPopup(makePopup(poi));
+        markerLayer.addLayer(marker);
+        markerIndex.set(key, marker);
+        bounds.push([poi.latitude, poi.longitude]);
+      }
+      mapInstance.addLayer(markerLayer);
+      if (bounds.length) mapInstance.fitBounds(bounds, { padding: [30, 30], maxZoom: 13 });
+      else mapInstance.setView([-2.5, 118], 5);
+      setTimeout(() => mapInstance && mapInstance.invalidateSize(), 250);
+    }
+
+    function renderList(filter = '') {
+      const query = filter.trim().toLowerCase();
+      const filtered = currentPois.filter((poi) => `${poi.name} ${poi.category} ${poi.osm_type} ${poi.osm_id}`.toLowerCase().includes(query));
+      $('listCount').textContent = `${filtered.length.toLocaleString('id-ID')} hasil`;
+      const visible = filtered.slice(0, 250);
+      if (!visible.length) {
+        $('poiList').innerHTML = '<div class="list-empty">Tidak ada POI yang cocok dengan filter.</div>';
+        return;
+      }
+      $('poiList').innerHTML = visible.map((poi) => {
+        const key = `${poi.osm_type}/${poi.osm_id}`;
+        return `<button type="button" class="poi-row" data-key="${escapeHtml(key)}">` +
+          `<span class="poi-name">${escapeHtml(poi.name)}</span>` +
+          `<span class="poi-meta"><span>${escapeHtml(poi.category)}</span><span>${escapeHtml(poi.osm_type)} · ${poi.osm_id}</span></span>` +
+          `<span class="poi-coord">${poi.latitude.toFixed(6)}, ${poi.longitude.toFixed(6)}</span></button>`;
+      }).join('') + (filtered.length > visible.length ? `<div class="list-empty">Menampilkan 250 dari ${filtered.length.toLocaleString('id-ID')} hasil. Gunakan filter atau unduh CSV/GeoJSON untuk seluruh data.</div>` : '');
+    }
+
+    function featuresToPois(geojson) {
+      const pois = [];
+      const seen = new Set();
+      for (const feature of (geojson && geojson.features) || []) {
+        const props = feature.properties || {};
+        const coords = feature.geometry && feature.geometry.coordinates;
+        if (!coords) continue;
+        const longitude = Number(coords[0]), latitude = Number(coords[1]);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) continue;
+        const id = `${props.osm_type}/${props.osm_id}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        pois.push({
+          osm_id: Number(props.osm_id),
+          osm_type: props.osm_type,
+          name: props.name || `${props.category} (${id})`,
+          category: props.category || '',
+          latitude, longitude,
+          province: props.province,
+          source: props.source,
+          osm_url: props.osm_url,
+          osm_tags: props.osm_tags || {}
+        });
+      }
+      return pois;
+    }
+
+    function finishAndRender(data, province) {
+      setProgress(98, 'Tahap 6/6 · Menampilkan peta', 'Menyiapkan titik POI untuk ditampilkan di peta...');
+      currentPois = featuresToPois(data.geojson);
+      currentSearch = { province, files: data.files || {}, csv: data.csv, geojson: data.geojson };
+      if (!currentPois.length) throw new Error('Backend selesai, tetapi tidak ada POI dengan koordinat valid.');
+      const label = (data.datasets || []).map((d) => `${d.label} (${d.count})`).join(' · ');
+      $('resultHeading').textContent = `${currentPois.length.toLocaleString('id-ID')} POI ditemukan`;
+      $('resultSubtitle').textContent = `${data.province || province} · ${label}`;
+      renderStats();
+      renderList();
+      $('listSearch').value = '';
+      switchScreen('resultsScreen');
+      createMap();
+      const files = Object.values(data.files || {}).join(', ');
+      $('dataTimestamp').textContent = `Sumber: OpenStreetMap · Batas: ${data.boundary} · Marker di peta: ${markerIndex.size.toLocaleString('id-ID')} dari ${data.count.toLocaleString('id-ID')} POI valid · Data siap diunduh (CSV/GeoJSON): ${files} · Koordinat way/relation menggunakan titik center dari Overpass.`;
+      setProgress(100, 'Selesai', 'Data berhasil diambil dan peta siap digunakan.');
+      setTimeout(closeModal, 450);
+    }
+
+    // Sends the request to the FastAPI backend and follows its real progress via SSE.
+    async function requestPoi(payload) {
+      let response;
+      try {
+        response = await fetch('/api/poi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+          body: JSON.stringify({ ...payload, stream: true })
+        });
+      } catch (error) {
+        throw new Error('Tidak dapat menghubungi server backend. Pastikan aplikasi dijalankan dengan: python -m uvicorn app:app --host 127.0.0.1 --port 8000');
+      }
+      if (!response.ok) {
+        let detail = `HTTP ${response.status}`;
+        try { const body = await response.json(); detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail); } catch (_) {}
+        throw new Error(`Backend menolak permintaan: ${detail}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let result = null;
+      const handle = (chunk) => {
+        const line = chunk.split('\n').find((l) => l.startsWith('data:'));
+        if (!line) return;
+        const event = JSON.parse(line.slice(5).trim());
+        if (event.type === 'progress') {
+          const stage = Math.max(1, Math.min(6, event.stage));
+          setProgress(event.percent, `Tahap ${stage}/6 · ${STAGES[stage - 1]}`, event.message);
+        } else if (event.type === 'error') {
+          throw new Error(event.message);
+        } else if (event.type === 'result') {
+          result = event.data;
+        }
+      };
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let sep;
+        while ((sep = buffer.indexOf('\n\n')) >= 0) {
+          handle(buffer.slice(0, sep));
+          buffer = buffer.slice(sep + 2);
+        }
+      }
+      if (!result) throw new Error('Koneksi ke backend terputus sebelum hasil diterima. Periksa logs/poi_downloader.log.');
+      return result;
+    }
+
+    async function runSearch(event) {
+      event.preventDefault();
+      const province = $('provinceInput').value.trim();
+      if (!province) {
+        $('provinceInput').focus();
+        return;
+      }
+      let parsed;
+      try {
+        parsed = parsePoiInput($('poiInput').value);
+      } catch (error) {
+        window.alert(error.message);
+        $('poiInput').focus();
+        return;
+      }
+      $('searchButton').disabled = true;
+      showModal();
+      try {
+        const data = await requestPoi({ province, category: parsed.category, tags: parsed.tags, format: 'both' });
+        finishAndRender(data, province);
+      } catch (error) {
+        console.error(error);
+        showFailure(error);
+      } finally {
+        $('searchButton').disabled = false;
+      }
+    }
+
+    // CSV and GeoJSON are produced by the Python backend and returned in the response,
+    // so downloading never depends on files stored on the (serverless) server.
+    function downloadSaved(kind) {
+      const base = ((currentSearch.files && currentSearch.files[kind]) || 'poi').replace(/\.(csv|geojson)$/, '');
+      let content, name, mime;
+      if (kind === 'csv' && currentSearch.csv) {
+        content = '\uFEFF' + currentSearch.csv; name = `${base}.csv`; mime = 'text/csv';
+      } else if (kind === 'geojson' && currentSearch.geojson) {
+        content = JSON.stringify(currentSearch.geojson, null, 1); name = `${base}.geojson`; mime = 'application/geo+json';
+      } else {
+        window.alert(`Data ${kind.toUpperCase()} tidak tersedia untuk pencarian ini.`);
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([content], { type: `${mime};charset=utf-8` }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    const exportCsv = () => downloadSaved('csv');
+    const exportGeoJson = () => downloadSaved('geojson');
+
+    $('searchForm').addEventListener('submit', runSearch);
+    $('closeError').addEventListener('click', () => closeModal());
+    $('newSearch').addEventListener('click', () => switchScreen('searchScreen'));
+    $('downloadCsv').addEventListener('click', exportCsv);
+    $('downloadGeojson').addEventListener('click', exportGeoJson);
+    $('listSearch').addEventListener('input', (event) => renderList(event.target.value));
+    $('poiList').addEventListener('click', (event) => {
+      const button = event.target.closest('.poi-row');
+      if (!button || !mapInstance) return;
+      const marker = markerIndex.get(button.dataset.key);
+      if (marker) {
+        markerLayer.zoomToShowLayer(marker, () => {
+          mapInstance.setView(marker.getLatLng(), Math.max(mapInstance.getZoom(), 15));
+          marker.openPopup();
+        });
+      }
+    });
+    document.querySelectorAll('.tag-chip').forEach((button) => {
+      button.addEventListener('click', () => {
+        const input = $('poiInput');
+        const current = input.value.trim();
+        const value = button.dataset.value;
+        input.value = current ? `${current}, ${value}` : value;
+        input.focus();
+      });
+    });
+  </script>
+</body>
+</html>
